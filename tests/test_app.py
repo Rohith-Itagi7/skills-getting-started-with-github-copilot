@@ -1,8 +1,22 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from src.app import app, activities
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def restore_activity_participants():
+    original_participants = {
+        name: list(activity["participants"])
+        for name, activity in activities.items()
+    }
+
+    yield
+
+    for name, participants in original_participants.items():
+        activities[name]["participants"] = participants
 
 
 def test_get_activities_returns_data():
@@ -24,7 +38,6 @@ def test_get_activities_returns_data():
 
 def test_signup_for_activity_success():
     activity_name = "Chess Club"
-    original_participants = list(activities[activity_name]["participants"])
     email = "new-student@mergington.edu"
 
     response = client.post(f"/activities/{activity_name}/signup?email={email}")
@@ -32,8 +45,6 @@ def test_signup_for_activity_success():
     assert response.status_code == 200
     assert response.json()["message"] == f"Signed up {email} for {activity_name}"
     assert email in activities[activity_name]["participants"]
-
-    activities[activity_name]["participants"] = original_participants
 
 
 def test_signup_for_activity_rejects_duplicate_email():
@@ -46,6 +57,20 @@ def test_signup_for_activity_rejects_duplicate_email():
     assert response.json()["detail"] == "Student is already signed up"
 
 
+def test_signup_for_activity_rejects_blank_email_without_mutating_participants():
+    activity_name = "Chess Club"
+    original_participants = list(activities[activity_name]["participants"])
+
+    response = client.post(
+        f"/activities/{activity_name}/signup",
+        params={"email": "   "},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Email is required"
+    assert activities[activity_name]["participants"] == original_participants
+
+
 def test_signup_for_activity_rejects_unknown_activity():
     response = client.post("/activities/Unknown Activity/signup?email=test@mergington.edu")
 
@@ -55,35 +80,27 @@ def test_signup_for_activity_rejects_unknown_activity():
 
 def test_signup_for_activity_rejects_full_activity():
     activity_name = "Gym Class"
-    original_participants = list(activities[activity_name]["participants"])
     activities[activity_name]["participants"] = [
         f"student{i}@mergington.edu" for i in range(activities[activity_name]["max_participants"])
     ]
 
-    try:
-        response = client.post(f"/activities/{activity_name}/signup?email=overflow@mergington.edu")
+    response = client.post(f"/activities/{activity_name}/signup?email=overflow@mergington.edu")
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Activity is full"
-    finally:
-        activities[activity_name]["participants"] = original_participants
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Activity is full"
 
 
 def test_unregister_from_activity_removes_participant():
     activity_name = "Chess Club"
     email = activities[activity_name]["participants"][0]
 
-    try:
-        response = client.delete(
-            f"/activities/{activity_name}/participants?email={email}"
-        )
+    response = client.delete(
+        f"/activities/{activity_name}/participants?email={email}"
+    )
 
-        assert response.status_code == 200
-        assert response.json()["message"] == f"Unregistered {email} from {activity_name}"
-        assert email not in activities[activity_name]["participants"]
-    finally:
-        if email not in activities[activity_name]["participants"]:
-            activities[activity_name]["participants"].append(email)
+    assert response.status_code == 200
+    assert response.json()["message"] == f"Unregistered {email} from {activity_name}"
+    assert email not in activities[activity_name]["participants"]
 
 
 def test_unregister_from_activity_rejects_unknown_activity():
