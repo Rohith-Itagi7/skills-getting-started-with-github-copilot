@@ -67,3 +67,38 @@ def test_signup_for_activity_rejects_full_activity():
         assert response.json()["detail"] == "Activity is full"
     finally:
         activities[activity_name]["participants"] = original_participants
+
+
+def test_unregister_from_activity_removes_participant():
+    activity_name = "Chess Club"
+    email = activities[activity_name]["participants"][0]
+
+    try:
+        response = client.delete(
+            f"/activities/{activity_name}/participants?email={email}"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == f"Unregistered {email} from {activity_name}"
+        assert email not in activities[activity_name]["participants"]
+    finally:
+        if email not in activities[activity_name]["participants"]:
+            activities[activity_name]["participants"].append(email)
+
+
+def test_unregister_from_activity_rejects_unknown_activity():
+    response = client.delete(
+        "/activities/Unknown Activity/participants?email=test@mergington.edu"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Activity not found"
+
+
+def test_unregister_from_activity_rejects_unregistered_participant():
+    response = client.delete(
+        "/activities/Chess Club/participants?email=not-signed-up@mergington.edu"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Student is not signed up for this activity"
